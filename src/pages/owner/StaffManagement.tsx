@@ -128,11 +128,7 @@ const StaffManagement = () => {
 
   return (
     <div className="space-y-6">
-      {
-        {
-          /* ======= 2.c) 근무자 관리 - 명단/연락처, 시간표(생성/수정/배포), 대타요청 승인, 신규근무자추가 ======= */
-        }
-      }
+      {/* ======= 2.c) 근무자 관리 - 명단/연락처, 시간표(생성/수정/배포), 대타요청 승인, 신규근무자추가 ======= */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">근무자 관리</h1>
