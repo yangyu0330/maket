@@ -5,6 +5,7 @@ import { connectDB } from './config/db' // ← 이게 정답
 
 import authRoutes from './routes/authRoutes'
 import staffRoutes from './routes/staffRoutes'
+import qrRoutes from './routes/qrRoutes'
 
 dotenv.config()
 
@@ -19,6 +20,7 @@ connectDB()
 // Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/staff', staffRoutes)
+app.use('/api', qrRoutes)
 
 const PORT = process.env.PORT || 5000
 
