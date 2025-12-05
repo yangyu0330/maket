@@ -20,6 +20,7 @@ import Schedule from './pages/staff/Schedule'
 import Community from './pages/common/Community'
 import Announcements from './pages/common/Announcements'
 import NotFound from './pages/NotFound'
+import SelfCalculation from './pages/SelfCalculation'
 
 const queryClient = new QueryClient()
 
@@ -134,6 +135,7 @@ const App = () => (
               </DashboardLayout>
             }
           />
+          <Route path="/kiosk" element={<SelfCalculation />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>

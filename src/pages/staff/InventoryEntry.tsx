@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Card,
   CardContent,
@@ -6,313 +6,580 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  QrCode,
-  Camera,
-  Package,
-  Trash2,
-  AlertTriangle,
-  CheckCircle,
-} from 'lucide-react'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Search, Package, AlertTriangle, ShoppingCart } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import axios from 'axios'
 
-// 테스트용 데이터 - 백엔드 연동 시 API로 대체 예정
-const expiringItems = [
+// API 인스턴스 설정
+const api = axios.create({
+  baseURL: 'http://localhost:5000/api',
+})
+
+// 요청 인터셉터: 토큰 자동 포함
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+type Product = {
+  _id: string
+  productName: string
+  entryDate: string
+  expireDate: string
+  quantity: number
+  scannedAt?: string
+  category?: string
+  minStock?: number
+  price?: number
+}
+
+type OrderRequest = {
+  id: string
+  item: string
+  quantity: number
+  requestedBy: string
+  date: string
+  status: '대기' | '승인' | '거절'
+  orderQuantity?: number
+  orderedAt?: string
+}
+
+// 데모용 모의 데이터
+const MOCK_PRODUCTS: Product[] = [
   {
-    id: 1,
-    name: '삼각김밥 참치',
-    barcode: '8801234567890',
-    expiryDate: '2024-01-17',
-    daysLeft: 2,
-    location: '냉장 1번',
+    _id: 'mock_1',
+    productName: '코카콜라 제로',
+    entryDate: new Date().toISOString(),
+    expireDate: '2024-12-31',
+    quantity: 50,
+    category: '음료',
+    minStock: 10,
+    price: 1500,
   },
   {
-    id: 2,
-    name: '도시락 김치볶음밥',
-    barcode: '8801234567891',
-    expiryDate: '2024-01-16',
-    daysLeft: 1,
-    location: '냉장 3번',
-  },
-  {
-    id: 3,
-    name: '바나나우유',
-    barcode: '8801234567892',
-    expiryDate: '2024-01-18',
-    daysLeft: 3,
-    location: '냉장 2번',
-  },
-  {
-    id: 4,
-    name: '샌드위치 햄치즈',
-    barcode: '8801234567893',
-    expiryDate: '2024-01-17',
-    daysLeft: 2,
-    location: '냉장 1번',
+    _id: 'mock_2',
+    productName: '삼각김밥 참치마요',
+    entryDate: new Date().toISOString(),
+    expireDate: new Date(Date.now() + 86400000 * 2).toISOString(),
+    quantity: 2,
+    category: '식품',
+    minStock: 5,
+    price: 1200,
   },
 ]
 
-const disposedItems = [
-  {
-    id: 1,
-    name: '컵라면 신라면',
-    reason: '유통기한 만료',
-    date: '2024-01-15 14:30',
-    disposedBy: '김알바',
-  },
-  {
-    id: 2,
-    name: '삼각김밥 참치',
-    reason: '포장 손상',
-    date: '2024-01-15 09:20',
-    disposedBy: '이알바',
-  },
-]
-
-const InventoryEntry = () => {
+const InventoryManagement = () => {
   const { toast } = useToast()
-  const [isScannerActive, setIsScannerActive] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('전체')
+  const [items, setItems] = useState<Product[]>([])
+  const [loading, setLoading] = useState(false)
+  const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([])
+  const [approveTarget, setApproveTarget] = useState<OrderRequest | null>(null)
+  const [orderQuantity, setOrderQuantity] = useState('')
 
-  const handleQRScan = () => {
-    setIsScannerActive(true)
-    // ======= 3.c-1) 카메라로 QR스캔하여 DB업로드 (백엔드 개발), QR에는 백엔드 DB정보 포함 =======
-    // TODO: 백엔드 QR 스캔 연동 - 카메라 활성화
-    toast({
-      title: 'QR 스캔 모드 활성화',
-      description: '카메라로 상품의 QR 코드를 스캔하세요. (백엔드 연동 예정)',
-    })
+  const fetchInventory = async () => {
+    setLoading(true)
 
-    // 시뮬레이션: 3초 후 스캔 완료
-    setTimeout(() => {
-      setIsScannerActive(false)
+    const token = localStorage.getItem('token')
+    if (!token) {
+      setItems(MOCK_PRODUCTS)
       toast({
-        title: '스캔 완료',
-        description: '상품 정보가 등록되었습니다.',
+        title: '데모 모드',
+        description: '로그인이 필요합니다. 테스트 데이터를 표시합니다.',
       })
-    }, 3000)
+      setLoading(false)
+      return
+    }
+
+    try {
+      const res = await api.get('/products')
+
+      if (!Array.isArray(res.data)) {
+        setItems([])
+        return
+      }
+
+      // 데이터 매핑 및 기본값 처리
+      const mapped = res.data.map((item: any) => ({
+        _id: item._id,
+        productName: item.name || item.productName || '',
+        quantity: Number(item.stock) || 0,
+        category: item.category || '기타',
+        price: Number(item.price) || 0,
+        minStock: Number(item.minStock) || 5,
+        expireDate: item.expiryDate || '',
+        entryDate: item.createdAt || new Date().toISOString(),
+      }))
+
+      const validItems = mapped.filter((item: Product) => {
+        const name = item.productName.trim()
+        if (!name || name === '이름 없음') return false
+        if (item.price === 0 && item.quantity === 0) return false
+        return true
+      })
+
+      setItems(validItems)
+    } catch (err: any) {
+      console.warn('API Error:', err.message)
+
+      let errorMsg = '목록 로드 실패'
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 401) errorMsg = '인증 만료'
+        else if (err.code === 'ERR_NETWORK') errorMsg = '서버 연결 불가'
+      }
+
+      toast({
+        title: '로드 실패',
+        description: errorMsg,
+        variant: 'destructive',
+      })
+      setItems(MOCK_PRODUCTS)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleDisposeItem = (itemId: number, reason: 'expired' | 'damaged') => {
-    // ======= 3.c-2) 폐기 상품 관리 (시간이지나 폐기된목록, 손상등의이유로 폐기된것 QR입력) =======
-    // TODO: 백엔드 API 연동 - 폐기 등록
-    const reasonText = reason === 'expired' ? '유통기한 만료' : '손상/파손'
+  useEffect(() => {
+    fetchInventory()
+  }, [])
+
+  // 검색 및 카테고리 필터링
+  const filteredInventory = useMemo(() => {
+    return items.filter((item) => {
+      const nameMatch = item.productName
+        ? item.productName.toLowerCase().includes(searchTerm.toLowerCase())
+        : false
+      const categoryMatch =
+        selectedCategory === '전체' || item.category === selectedCategory
+      return nameMatch && categoryMatch
+    })
+  }, [items, searchTerm, selectedCategory])
+
+  // 유통기한 D-Day 계산
+  const daysUntil = (date?: string) => {
+    if (!date) return null
+    const target = new Date(date).getTime()
+    if (isNaN(target)) return null
+    const today = new Date().setHours(0, 0, 0, 0)
+    return Math.ceil((target - today) / (1000 * 60 * 60 * 24))
+  }
+
+  const lowStockItems = filteredInventory.filter(
+    (item) => item.quantity < (item.minStock ?? 0)
+  )
+  const expiringItems = filteredInventory.filter((item) => {
+    const d = daysUntil(item.expireDate)
+    return d !== null && d <= 7
+  })
+
+  // 자동 발주 제안 생성
+  useEffect(() => {
+    const next = items
+      .filter((item) => item.quantity <= 2)
+      .map((item) => {
+        let dateStr = '-'
+        try {
+          const d = item.scannedAt || item.entryDate
+          if (d) {
+            const dateObj = new Date(d)
+            if (!isNaN(dateObj.getTime()))
+              dateStr = dateObj.toLocaleDateString()
+          }
+        } catch (e) {
+          dateStr = '-'
+        }
+
+        return {
+          id: item._id,
+          item: item.productName,
+          quantity: item.quantity,
+          requestedBy: '시스템 감지',
+          date: dateStr,
+          status: '대기' as const,
+        }
+      })
+
+    setOrderRequests((prev) =>
+      next.map((n) => {
+        const existing = prev.find((p) => p.id === n.id)
+        return existing
+          ? {
+              ...n,
+              status: existing.status,
+              orderQuantity: existing.orderQuantity,
+              orderedAt: existing.orderedAt,
+            }
+          : n
+      })
+    )
+  }, [items])
+
+  const pendingOrders = orderRequests.filter((r) => r.status === '대기')
+  const approvedOrders = orderRequests.filter((r) => r.status === '승인')
+
+  // 발주 승인/거절 처리
+  const handleOrderApproval = (
+    orderId: string,
+    action: 'approve' | 'reject'
+  ) => {
+    setOrderRequests((prev) =>
+      prev.map((req) =>
+        req.id === orderId
+          ? { ...req, status: action === 'approve' ? '승인' : '거절' }
+          : req
+      )
+    )
     toast({
-      title: '폐기 등록 완료',
-      description: `${reasonText}로 폐기 처리되었습니다.`,
+      title: action === 'approve' ? '승인 완료' : '거절 완료',
+      description: `발주 요청이 ${
+        action === 'approve' ? '승인' : '거절'
+      }되었습니다.`,
+    })
+  }
+
+  const openApproveDialog = (request: OrderRequest) => {
+    setApproveTarget(request)
+    setOrderQuantity(request.quantity.toString())
+  }
+
+  const handleApproveConfirm = () => {
+    if (!approveTarget) return
+    const qty = Number(orderQuantity)
+    if (Number.isNaN(qty) || qty <= 0) {
+      toast({
+        title: '입력 오류',
+        description: '올바른 수량을 입력하세요.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setOrderRequests((prev) =>
+      prev.map((req) =>
+        req.id === approveTarget.id
+          ? {
+              ...req,
+              status: '승인',
+              orderQuantity: qty,
+              orderedAt: new Date().toISOString(),
+            }
+          : req
+      )
+    )
+    setApproveTarget(null)
+    setOrderQuantity('')
+    toast({ title: '발주 완료', description: `${qty}개 발주되었습니다.` })
+  }
+
+  const handleAutoRecommend = () => {
+    toast({
+      title: '자동 추천',
+      description: '부족한 재고 기준으로 추천되었습니다.',
     })
   }
 
   return (
     <div className="space-y-6">
-      {/* ======= 3.c) 재고 및 폐기 등록 - QR스캔(카메라), 폐기상품관리, 유통기한임박상품 ======= */}
       <div>
-        <h1 className="text-3xl font-bold">재고 & 폐기 등록</h1>
+        <h1 className="text-3xl font-bold">재고/발주 관리</h1>
         <p className="text-muted-foreground mt-1">
-          QR 스캔으로 재고를 관리하고 폐기 물품을 등록하세요
+          재고 현황을 확인하고 발주를 관리하세요
         </p>
       </div>
 
-      {/* QR 스캔 카드 */}
-      <Card className="border-primary">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <QrCode className="w-5 h-5" />
-            QR 코드 스캔
-          </CardTitle>
-          <CardDescription>
-            상품의 QR 코드를 스캔하여 재고를 등록하거나 폐기 처리하세요
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center py-8">
-            {isScannerActive ? (
-              <div className="w-full max-w-sm">
-                <div className="aspect-square bg-muted rounded-lg flex items-center justify-center mb-4 relative overflow-hidden">
-                  <Camera className="w-16 h-16 text-muted-foreground animate-pulse" />
-                  <div className="absolute inset-0 border-4 border-primary animate-pulse" />
-                </div>
-                <p className="text-center text-sm text-muted-foreground">
-                  QR 코드를 카메라에 비춰주세요...
-                </p>
-              </div>
-            ) : (
-              <>
-                <QrCode className="w-24 h-24 text-primary mb-4" />
-                <p className="text-center text-muted-foreground mb-4">
-                  카메라로 상품 QR 코드를 스캔하세요
-                </p>
-                <Button size="lg" onClick={handleQRScan}>
-                  <Camera className="w-5 h-5 mr-2" />
-                  QR 스캔 시작
-                </Button>
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 통계 */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-destructive" />
-              유통기한 임박
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive">
-              {expiringItems.length}개
-            </div>
-            <p className="text-xs text-muted-foreground">3일 이내 유통기한</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Trash2 className="w-4 h-4" />
-              오늘 폐기
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{disposedItems.length}개</div>
-            <p className="text-xs text-muted-foreground">
-              ₩{(42000).toLocaleString()} 손실
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-success" />
-              스캔 완료
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-success">45개</div>
-            <p className="text-xs text-muted-foreground">오늘 등록된 상품</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 탁 */}
-      <Tabs defaultValue="expiring" className="space-y-4">
+      <Tabs defaultValue="inventory" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="inventory">재고 목록</TabsTrigger>
+          <TabsTrigger value="orders">발주 요청</TabsTrigger>
           <TabsTrigger value="expiring">유통기한 임박</TabsTrigger>
-          <TabsTrigger value="disposed">폐기 내역</TabsTrigger>
         </TabsList>
 
+        {/* 재고 목록 탭 */}
+        <TabsContent value="inventory" className="space-y-4">
+          <div className="flex gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="물품 검색..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select
+              value={selectedCategory}
+              onValueChange={setSelectedCategory}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="전체">전체</SelectItem>
+                <SelectItem value="식품">식품</SelectItem>
+                <SelectItem value="음료">음료</SelectItem>
+                <SelectItem value="생활용품">생활용품</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={fetchInventory}
+              disabled={loading}
+            >
+              {loading ? '로딩 중...' : '새로고침'}
+            </Button>
+            <Button onClick={handleAutoRecommend}>
+              <ShoppingCart className="w-4 h-4 mr-2" /> 자동 추천
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="border-warning">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-warning" /> 재고 부족
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-warning">
+                  {lowStockItems.length}개
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-destructive">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-destructive" /> 임박
+                  상품
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">
+                  {expiringItems.length}개
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>재고 목록</CardTitle>
+              <CardDescription>
+                전체 {filteredInventory.length}개 품목
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {filteredInventory.map((item) => {
+                  const expiry = daysUntil(item.expireDate)
+                  return (
+                    <div
+                      key={item._id}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                          <Package className="w-6 h-6 text-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-medium">{item.productName}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {item.category} • ₩
+                            {item.price?.toLocaleString() ?? '-'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-6">
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">재고</p>
+                          <p
+                            className={`font-medium ${
+                              item.quantity < (item.minStock ?? 0)
+                                ? 'text-warning'
+                                : ''
+                            }`}
+                          >
+                            {item.quantity}개
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">
+                            유통기한
+                          </p>
+                          <p
+                            className={`font-medium ${
+                              expiry !== null && expiry <= 3
+                                ? 'text-destructive'
+                                : ''
+                            }`}
+                          >
+                            {expiry === null ? '-' : `D-${expiry}`}
+                          </p>
+                        </div>
+                        {item.quantity < (item.minStock ?? 0) && (
+                          <Badge
+                            variant="outline"
+                            className="border-warning text-warning"
+                          >
+                            부족
+                          </Badge>
+                        )}
+                        {expiry !== null && expiry <= 3 && (
+                          <Badge
+                            variant="outline"
+                            className="border-destructive text-destructive"
+                          >
+                            임박
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                {filteredInventory.length === 0 && (
+                  <div className="text-center text-muted-foreground py-8">
+                    등록된 재고가 없습니다.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* 발주 요청 탭 */}
+        <TabsContent value="orders" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>발주 요청 목록</CardTitle>
+              <CardDescription>수량 2개 이하 품목 자동 감지</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {pendingOrders.map((request) => (
+                  <div
+                    key={request.id}
+                    className="flex items-center justify-between p-4 border rounded-lg"
+                  >
+                    <h4 className="font-medium">{request.item}</h4>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => openApproveDialog(request)}
+                      >
+                        승인
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          handleOrderApproval(request.id, 'reject')
+                        }
+                      >
+                        거절
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {pendingOrders.length === 0 && (
+                  <div className="text-center text-muted-foreground py-6">
+                    요청 없음
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>승인 목록</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {approvedOrders.map((request) => (
+                  <div
+                    key={request.id}
+                    className="flex items-center justify-between p-4 border rounded-lg"
+                  >
+                    <div>
+                      <h4 className="font-medium">{request.item}</h4>
+                      <p className="text-xs text-muted-foreground">
+                        주문: {request.orderQuantity ?? 0}개 •{' '}
+                        {request.orderedAt
+                          ? new Date(request.orderedAt).toLocaleDateString()
+                          : '-'}
+                      </p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="border-success text-success"
+                    >
+                      승인됨
+                    </Badge>
+                  </div>
+                ))}
+                {approvedOrders.length === 0 && (
+                  <div className="text-center text-muted-foreground py-6">
+                    승인 내역 없음
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* 유통기한 임박 탭 */}
         <TabsContent value="expiring" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>유통기한 임박 상품</CardTitle>
-              {/* ======= 3.c-3) 유통기한 임박 상품 확인 목록 ======= */}
-              <CardDescription>
-                3일 이내 유통기한이 도래하는 상품 목록
-              </CardDescription>
+              <CardDescription>7일 이내 만료 예정</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {expiringItems.map((item) => (
                   <div
-                    key={item.id}
-                    className="p-4 border border-destructive/20 bg-destructive/5 rounded-lg"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-4 flex-1">
-                        <AlertTriangle className="w-5 h-5 text-destructive mt-1" />
-                        <div className="flex-1">
-                          <h4 className="font-medium">{item.name}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            바코드: {item.barcode}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            위치: {item.location}
-                          </p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Badge
-                              variant="outline"
-                              className="border-destructive text-destructive"
-                            >
-                              D-{item.daysLeft}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {item.expiryDate}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDisposeItem(item.id, 'expired')}
-                        >
-                          유통기한 폐기
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDisposeItem(item.id, 'damaged')}
-                        >
-                          손상 폐기
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-warning/20 bg-warning/5">
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" />
-                폐기 처리 안내
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground space-y-2">
-              <p>• 유통기한 당일: 즉시 폐기 처리</p>
-              <p>• D-1~3: 할인 판매 후 미판매 시 폐기</p>
-              <p>• 손상/파손: 즉시 폐기 처리</p>
-              <p>• 폐기 시 반드시 QR 스캔으로 등록</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="disposed" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>폐기 처리 내역</CardTitle>
-              <CardDescription>최근 폐기 처리된 상품 목록</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {disposedItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-4 border rounded-lg bg-muted/30"
+                    key={item._id}
+                    className="flex items-center justify-between p-4 border border-destructive/20 bg-destructive/5 rounded-lg"
                   >
                     <div className="flex items-center gap-4">
-                      <Trash2 className="w-5 h-5 text-muted-foreground" />
-                      <div className="flex-1">
-                        <h4 className="font-medium">{item.name}</h4>
+                      <AlertTriangle className="w-5 h-5 text-destructive" />
+                      <div>
+                        <h4 className="font-medium">{item.productName}</h4>
                         <p className="text-sm text-muted-foreground">
-                          사유: {item.reason}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {item.date} • 처리자: {item.disposedBy}
+                          재고: {item.quantity}개
                         </p>
                       </div>
+                    </div>
+                    <div className="text-right">
                       <Badge
                         variant="outline"
-                        className="border-muted-foreground text-muted-foreground"
+                        className="border-destructive text-destructive"
                       >
-                        폐기 완료
+                        {daysUntil(item.expireDate) !== null
+                          ? `D-${daysUntil(item.expireDate)}`
+                          : '-'}
                       </Badge>
                     </div>
                   </div>
@@ -322,8 +589,34 @@ const InventoryEntry = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={!!approveTarget}
+        onOpenChange={(open) => !open && setApproveTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>발주 수량</DialogTitle>
+            <DialogDescription>
+              {approveTarget?.item} 주문 수량을 입력하세요.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="number"
+            min={1}
+            value={orderQuantity}
+            onChange={(e) => setOrderQuantity(e.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveTarget(null)}>
+              취소
+            </Button>
+            <Button onClick={handleApproveConfirm}>전송</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-export default InventoryEntry
+export default InventoryManagement

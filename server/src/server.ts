@@ -1,11 +1,15 @@
 import express from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
-import { connectDB } from './config/db' // ← 이게 정답
+import { connectDB } from './config/db'
 
 import authRoutes from './routes/authRoutes'
 import staffRoutes from './routes/staffRoutes'
+import announcementRoutes from './routes/announcementRoutes'
+import communityRoutes from './routes/communityRoutes'
 import qrRoutes from './routes/qrRoutes'
+import productRoutes from './routes/productRoutes'
+import kioskRoutes from './routes/kioskRoutes'
 
 dotenv.config()
 
@@ -20,7 +24,11 @@ connectDB()
 // Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/staff', staffRoutes)
+app.use('/api/announcements', announcementRoutes)
+app.use('/api/community', communityRoutes)
 app.use('/api', qrRoutes)
+app.use('/api/products', productRoutes)
+app.use('/api/kiosk', kioskRoutes)
 
 const PORT = process.env.PORT || 5000
 
