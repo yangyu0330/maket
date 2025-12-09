@@ -19,7 +19,21 @@ import {
 } from '@/components/ui/select'
 import { Search, Package, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import api from '@/lib/api'
+import axios from 'axios'
+
+// API 인스턴스 설정
+const api = axios.create({
+  baseURL: 'http://localhost:5000/api',
+})
+
+// 요청 인터셉터: 토큰 자동 포함
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
 
 type Product = {
   _id: string

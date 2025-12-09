@@ -27,7 +27,21 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
-import api from '@/lib/api'
+import axios from 'axios'
+
+// [수정] 외부 파일 의존성 제거를 위해 api 인스턴스를 내부에서 정의
+const api = axios.create({
+  baseURL: 'http://localhost:5000/api', // 서버 주소에 맞게 조정 필요
+})
+
+// 요청 인터셉터 추가 (토큰 자동 포함)
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
 
 type Product = {
   _id: string

@@ -122,5 +122,54 @@ router.get('/products/quick', async (req, res) => {
   }
 })
 
+router.post('/init-data', async (req, res) => {
+  try {
+    await Product.deleteMany({})
+
+    const initialItems = [
+      {
+        name: '아이스 아메리카노',
+        price: 1500,
+        barcode: '880001',
+        category: '커피',
+        stock: 100,
+      },
+      {
+        name: '핫 아메리카노',
+        price: 1200,
+        barcode: '880002',
+        category: '커피',
+        stock: 100,
+      },
+      {
+        name: '생수 500ml',
+        price: 900,
+        barcode: '880003',
+        category: '음료',
+        stock: 50,
+      },
+      {
+        name: '비닐봉투',
+        price: 20,
+        barcode: '880004',
+        category: '기타',
+        stock: 1000,
+      },
+      {
+        name: '신라면 컵',
+        price: 1100,
+        barcode: '880005',
+        category: '식품',
+        stock: 30,
+      },
+    ]
+
+    await Product.insertMany(initialItems)
+    res.json({ message: '초기 상품 데이터 등록 완료!' })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: '등록 실패' })
+  }
+})
 
 export default router

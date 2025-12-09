@@ -12,7 +12,11 @@ import {
 } from '@/components/ui/card'
 import { Store, ScanBarcode } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import api from '@/lib/api'
+import axios from 'axios'
+
+const api = axios.create({
+  baseURL: 'http://localhost:5000/api', // 백엔드 서버 주소
+})
 
 interface LoginResponse {
   token: string
@@ -76,9 +80,9 @@ const Login = () => {
         description: errorMessage,
         variant: 'destructive',
       })
-    } finally {
-      setIsLoading(false)
     }
+
+    setIsLoading(false)
   }
 
   return (
